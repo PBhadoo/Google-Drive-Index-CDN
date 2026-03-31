@@ -1746,50 +1746,60 @@ function file_pdf(name, encoded_name, size, url, file_id, cookie_folder_id) {
     </div>`;
     $("#content").html(content);
 
-    // PDF.js is already loaded in the page head — init viewer
-    if (typeof pdfjsLib === 'undefined') {
-        $('#pdf-spinner').html('<div class="alert alert-warning">PDF.js not loaded. Please reload.</div>');
-        return;
-    }
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.worker.min.mjs';
-
     let pdfDoc = null;
     let currentPage = 1;
     let scale = 1.0;
-    const canvas = document.getElementById('pdf-canvas');
-    const ctx = canvas.getContext('2d');
 
-    function renderPage(num) {
-        pdfDoc.getPage(num).then(function(page) {
-            const viewport = page.getViewport({ scale });
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            page.render({ canvasContext: ctx, viewport }).promise.then(function() {
-                $('#pdf-spinner').hide();
+    function initPdfViewer() {
+        const canvas = document.getElementById('pdf-canvas');
+        const ctx = canvas.getContext('2d');
+
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/legacy/build/pdf.worker.min.js';
+
+        function renderPage(num) {
+            pdfDoc.getPage(num).then(function(page) {
+                const viewport = page.getViewport({ scale });
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                page.render({ canvasContext: ctx, viewport }).promise.then(function() {
+                    $('#pdf-spinner').hide();
+                });
+                document.getElementById('pdf-page-num').textContent = num;
             });
-            document.getElementById('pdf-page-num').textContent = num;
+        }
+
+        pdfjsLib.getDocument(url).promise.then(function(pdf) {
+            pdfDoc = pdf;
+            document.getElementById('pdf-page-count').textContent = pdf.numPages;
+            renderPage(currentPage);
+        }).catch(function(err) {
+            $('#pdf-spinner').html(`<div class="alert alert-danger">Could not load PDF: ${err.message}</div>`);
+        });
+
+        document.getElementById('pdf-prev').addEventListener('click', function() {
+            if (currentPage > 1) { currentPage--; renderPage(currentPage); }
+        });
+        document.getElementById('pdf-next').addEventListener('click', function() {
+            if (pdfDoc && currentPage < pdfDoc.numPages) { currentPage++; renderPage(currentPage); }
+        });
+        document.getElementById('pdf-zoom').addEventListener('input', function() {
+            scale = parseInt(this.value) / 100;
+            document.getElementById('pdf-zoom-val').textContent = this.value + '%';
+            renderPage(currentPage);
         });
     }
 
-    pdfjsLib.getDocument(url).promise.then(function(pdf) {
-        pdfDoc = pdf;
-        document.getElementById('pdf-page-count').textContent = pdf.numPages;
-        renderPage(currentPage);
-    }).catch(function(err) {
-        $('#pdf-spinner').html(`<div class="alert alert-danger">Could not load PDF: ${err.message}</div>`);
-    });
-
-    document.getElementById('pdf-prev').addEventListener('click', function() {
-        if (currentPage > 1) { currentPage--; renderPage(currentPage); }
-    });
-    document.getElementById('pdf-next').addEventListener('click', function() {
-        if (currentPage < pdfDoc.numPages) { currentPage++; renderPage(currentPage); }
-    });
-    document.getElementById('pdf-zoom').addEventListener('input', function() {
-        scale = parseInt(this.value) / 100;
-        document.getElementById('pdf-zoom-val').textContent = this.value + '%';
-        renderPage(currentPage);
-    });
+    if (typeof pdfjsLib !== 'undefined') {
+        initPdfViewer();
+    } else {
+        const pdfScript = document.createElement('script');
+        pdfScript.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/legacy/build/pdf.min.js';
+        pdfScript.onload = initPdfViewer;
+        pdfScript.onerror = function() {
+            $('#pdf-spinner').html('<div class="alert alert-danger">Failed to load PDF viewer.</div>');
+        };
+        document.head.appendChild(pdfScript);
+    }
 }
 
 // image display
