@@ -1004,18 +1004,19 @@ function append_search_result_to_list(files) {
 }
 
 // ============================================================================
-// SEARCH RESULT CLICK → PATH MODAL
+// SEARCH RESULT CLICK → PATH RESOLUTION
 // ============================================================================
-// rootIdx: index in roots array if the file's driveId directly matches a configured root (shared drives),
-// -1 for My Drive files or files in unconfigured drives. Drive 0's id2path checks ALL roots via parent
-// chain traversal, so a single call is sufficient regardless of rootIdx.
+// Walk the file's parent chain via a single id2path call (drive 0 checks ALL
+// configured roots via drive_list). If found → show "Open" modal with the
+// resolved path. If not found in any configured root → navigate directly to
+// /fallback?id=... which opens the file/folder without path lookup.
 function onSearchResultItemClick(file_id, can_preview, rootIdx) {
     $('#SearchModelLabel').html('Loading…');
     $('#modal-body-space').html(`<div class="gdi-spinner-wrap"><div class="gdi-spinner"></div></div>`);
 
-    // If rootIdx identifies a specific shared-drive root, use it; otherwise drive 0 will walk
-    // the parent chain and match against ALL configured roots (drive_list in worker).
+    // Use rootIdx hint for shared-drive files; drive 0 covers all roots via parent-chain walk.
     const primaryDrive = (typeof rootIdx === 'number' && rootIdx >= 0) ? rootIdx : 0;
+    const fallbackUrl = `/fallback?id=${encodeURIComponent(file_id)}${can_preview ? '&a=view' : ''}`;
 
     async function tryResolve() {
         try {
@@ -1037,12 +1038,13 @@ function onSearchResultItemClick(file_id, can_preview, rootIdx) {
             }
         } catch (_) {}
 
-        // File not found in any configured drive — offer fallback access
-        $('#SearchModelLabel').html('Not in configured drives');
-        $('#modal-body-space').html(`
-          <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">This file was not found under any configured drive root. You can still open it directly.</p>
-          <a class="gdi-btn gdi-btn-primary me-2" href="/fallback?id=${encodeURIComponent(file_id)}${can_preview ? '&a=view' : ''}">Open anyway</a>
-          <a class="gdi-btn gdi-btn-ghost" href="/fallback?id=${encodeURIComponent(file_id)}${can_preview ? '&a=view' : ''}" target="_blank">Open in new tab</a>`);
+        // Not found in any configured drive — navigate directly to fallback.
+        // /fallback renders the file/folder directly using the encrypted ID,
+        // no path resolution needed.
+        const modalEl = document.getElementById('SearchModel');
+        const bsModal = modalEl && window.bootstrap?.Modal?.getInstance(modalEl);
+        if (bsModal) bsModal.hide();
+        window.location.href = fallbackUrl;
     }
 
     tryResolve();
