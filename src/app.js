@@ -1,4 +1,4 @@
-// v2.5.4 — Classic Design System
+// v2.5.5 — Classic Design System
 
 // ============================================================================
 // FILE TYPE CONSTANTS - Centralized file extension mappings
