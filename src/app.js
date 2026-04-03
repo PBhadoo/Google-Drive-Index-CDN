@@ -1006,17 +1006,28 @@ function append_search_result_to_list(files) {
 // ============================================================================
 // SEARCH RESULT CLICK → PATH RESOLUTION
 // ============================================================================
-// Walk the file's parent chain via a single id2path call (drive 0 checks ALL
-// configured roots via drive_list). If found → show "Open" modal with the
-// resolved path. If not found in any configured root → navigate directly to
-// /fallback?id=... which opens the file/folder without path lookup.
+// rootIdx values from worker:
+//  >= 0  driveId matches roots[rootIdx] — call that drive's id2path directly
+//  -1    My Drive file (no driveId) — call drive 0's id2path to walk folder-root chain
+//  -2    in a shared drive that is NOT in roots — skip id2path, go straight to fallback
 function onSearchResultItemClick(file_id, can_preview, rootIdx) {
+    const fallbackUrl = `/fallback?id=${encodeURIComponent(file_id)}${can_preview ? '&a=view' : ''}`;
+
+    function goFallback() {
+        const modalEl = document.getElementById('SearchModel');
+        const bsModal = modalEl && window.bootstrap?.Modal?.getInstance(modalEl);
+        if (bsModal) bsModal.hide();
+        window.location.href = fallbackUrl;
+    }
+
+    // rootIdx -2: file is in a shared drive not in roots — no point calling id2path
+    if (rootIdx === -2) { goFallback(); return; }
+
     $('#SearchModelLabel').html('Loading…');
     $('#modal-body-space').html(`<div class="gdi-spinner-wrap"><div class="gdi-spinner"></div></div>`);
 
-    // Use rootIdx hint for shared-drive files; drive 0 covers all roots via parent-chain walk.
-    const primaryDrive = (typeof rootIdx === 'number' && rootIdx >= 0) ? rootIdx : 0;
-    const fallbackUrl = `/fallback?id=${encodeURIComponent(file_id)}${can_preview ? '&a=view' : ''}`;
+    // rootIdx >= 0: use that specific drive; -1: drive 0 walks parent chain for folder roots
+    const primaryDrive = rootIdx >= 0 ? rootIdx : 0;
 
     async function tryResolve() {
         try {
@@ -1038,13 +1049,8 @@ function onSearchResultItemClick(file_id, can_preview, rootIdx) {
             }
         } catch (_) {}
 
-        // Not found in any configured drive — navigate directly to fallback.
-        // /fallback renders the file/folder directly using the encrypted ID,
-        // no path resolution needed.
-        const modalEl = document.getElementById('SearchModel');
-        const bsModal = modalEl && window.bootstrap?.Modal?.getInstance(modalEl);
-        if (bsModal) bsModal.hide();
-        window.location.href = fallbackUrl;
+        // Parent chain found no configured root — navigate directly to fallback
+        goFallback();
     }
 
     tryResolve();
