@@ -1,5 +1,5 @@
 // Redesigned by telegram.dog/TheFirstSpeedster at https://www.npmjs.com/package/@googledrive/index which was written by someone else, credits are given on Source Page.
-// v2.5.0 — Classic Design System
+// v2.5.1 — Classic Design System
 
 // ============================================================================
 // FILE TYPE CONSTANTS - Centralized file extension mappings
