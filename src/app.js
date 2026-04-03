@@ -1,5 +1,5 @@
 // Redesigned by telegram.dog/TheFirstSpeedster at https://www.npmjs.com/package/@googledrive/index which was written by someone else, credits are given on Source Page.
-// v2.5.1 — Classic Design System
+// v2.5.2 — Classic Design System
 
 // ============================================================================
 // FILE TYPE CONSTANTS - Centralized file extension mappings
@@ -951,8 +951,9 @@ function append_search_result_to_list(files) {
             if (item['size'] == undefined) item['size'] = '';
             item['modifiedTime'] = utc2delhi(item['modifiedTime']);
 
+            const itemRootIdx = (typeof item['rootIdx'] === 'number') ? item['rootIdx'] : -1;
             if (item['mimeType'] == 'application/vnd.google-apps.folder') {
-                html += `<a style="cursor:pointer;" onclick="onSearchResultItemClick('${escHtml(item['id'])}', false)" data-bs-toggle="modal" data-bs-target="#SearchModel"
+                html += `<a style="cursor:pointer;" onclick="onSearchResultItemClick('${escHtml(item['id'])}', false, ${itemRootIdx})" data-bs-toggle="modal" data-bs-target="#SearchModel"
   class="gdi-row countitems" data-name="${escHtml(item.name.toLowerCase())}" data-date="${item['modifiedTime'] || ''}">
   <span class="gdi-row-icon"><i class="bi bi-folder-fill gdi-icon-folder"></i></span>
   <span class="gdi-row-name">${escHtml(item.name)}</span>
@@ -971,7 +972,7 @@ function append_search_result_to_list(files) {
                 html += `<div class="gdi-row countitems size_items" data-name="${escHtml(item.name.toLowerCase())}" data-bytes="${rawSize}" data-date="${item['modifiedTime'] || ''}">
   ${UI.allow_selecting_files ? `<input class="gdi-row-check" type="checkbox" value="${link}">` : ''}
   <span class="gdi-row-icon">${getFileIcon(ext)}</span>
-  <span class="gdi-row-name" onclick="onSearchResultItemClick('${escHtml(item['id'])}', true)" data-bs-toggle="modal" data-bs-target="#SearchModel" style="cursor:pointer;">${escHtml(item.name)}</span>
+  <span class="gdi-row-name" onclick="onSearchResultItemClick('${escHtml(item['id'])}', true, ${itemRootIdx})" data-bs-toggle="modal" data-bs-target="#SearchModel" style="cursor:pointer;">${escHtml(item.name)}</span>
   <span class="gdi-row-size">${UI.display_size ? item['size'] : ''}</span>
   <span class="gdi-row-date">${UI.display_time ? item['modifiedTime'] : ''}</span>
   <span class="gdi-row-acts">
@@ -1005,42 +1006,46 @@ function append_search_result_to_list(files) {
 // ============================================================================
 // SEARCH RESULT CLICK → PATH MODAL
 // ============================================================================
-function onSearchResultItemClick(file_id, can_preview) {
-    const cur = window.current_drive_order || 0;
+// rootIdx: index in roots array if the file's driveId directly matches a configured root (shared drives),
+// -1 for My Drive files or files in unconfigured drives. Drive 0's id2path checks ALL roots via parent
+// chain traversal, so a single call is sufficient regardless of rootIdx.
+function onSearchResultItemClick(file_id, can_preview, rootIdx) {
     $('#SearchModelLabel').html('Loading…');
     $('#modal-body-space').html(`<div class="gdi-spinner-wrap"><div class="gdi-spinner"></div></div>`);
 
-    const driveCount = (window.drive_names || []).length || 1;
-    // Try current drive first, then all others in order
-    const driveOrder = [cur, ...[...Array(driveCount).keys()].filter(i => i !== cur)];
+    // If rootIdx identifies a specific shared-drive root, use it; otherwise drive 0 will walk
+    // the parent chain and match against ALL configured roots (drive_list in worker).
+    const primaryDrive = (typeof rootIdx === 'number' && rootIdx >= 0) ? rootIdx : 0;
 
-    async function tryNext(idx) {
-        if (idx >= driveOrder.length) {
-            $('#SearchModelLabel').html('Fallback');
-            $('#modal-body-space').html(`
-              <a class="gdi-btn gdi-btn-primary me-2" href="/fallback?id=${encodeURIComponent(file_id)}${can_preview ? '&a=view' : ''}">Open</a>
-              <a class="gdi-btn gdi-btn-ghost" href="/fallback?id=${encodeURIComponent(file_id)}${can_preview ? '&a=view' : ''}" target="_blank">Open in new tab</a>`);
-            return;
-        }
+    async function tryResolve() {
         try {
-            const r = await fetch(`/${driveOrder[idx]}:id2path`, {
+            const r = await fetch(`/${primaryDrive}:id2path`, {
                 method: 'POST',
                 body: JSON.stringify({ id: file_id }),
                 headers: { 'Content-Type': 'application/json' }
             });
-            if (!r.ok) { await tryNext(idx + 1); return; }
-            const obj = await r.json();
-            if (!obj.path) { await tryNext(idx + 1); return; }
-            const href = obj.path.replace(/#/g, '%23').replace(/\?/g, '%3F');
-            $('#SearchModelLabel').html('Open file');
-            $('#modal-body-space').html(`
-              <a class="gdi-btn gdi-btn-primary me-2" href="${href}${can_preview ? '?a=view' : ''}">Open</a>
-              <a class="gdi-btn gdi-btn-ghost" href="${href}${can_preview ? '?a=view' : ''}" target="_blank">Open in new tab</a>`);
-        } catch (_) {
-            await tryNext(idx + 1);
-        }
+            if (r.ok) {
+                const obj = await r.json();
+                if (obj.path) {
+                    const href = obj.path.replace(/#/g, '%23').replace(/\?/g, '%3F');
+                    $('#SearchModelLabel').html('Open file');
+                    $('#modal-body-space').html(`
+                      <a class="gdi-btn gdi-btn-primary me-2" href="${href}${can_preview ? '?a=view' : ''}">Open</a>
+                      <a class="gdi-btn gdi-btn-ghost" href="${href}${can_preview ? '?a=view' : ''}" target="_blank">Open in new tab</a>`);
+                    return;
+                }
+            }
+        } catch (_) {}
+
+        // File not found in any configured drive — offer fallback access
+        $('#SearchModelLabel').html('Not in configured drives');
+        $('#modal-body-space').html(`
+          <p style="font-size:13px;color:var(--muted);margin-bottom:12px;">This file was not found under any configured drive root. You can still open it directly.</p>
+          <a class="gdi-btn gdi-btn-primary me-2" href="/fallback?id=${encodeURIComponent(file_id)}${can_preview ? '&a=view' : ''}">Open anyway</a>
+          <a class="gdi-btn gdi-btn-ghost" href="/fallback?id=${encodeURIComponent(file_id)}${can_preview ? '&a=view' : ''}" target="_blank">Open in new tab</a>`);
     }
-    tryNext(0);
+
+    tryResolve();
 }
 
 // ============================================================================
